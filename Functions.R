@@ -813,3 +813,308 @@ Repeat_Backward <- function(Y, a=1, b=1, m=0, psi=1, psi0=100, alpha_stars, eta_
   
   return(list(phi_t, psi_hj, m_hj, a_hj, b_hj))
 }
+
+
+SUGS <- function(Y, a=1, b=NULL, m=0, psi=1, c=1, d=10, alpha_stars, eta_probs=NULL,
+                 preliminary=TRUE, prior_info=FALSE, prior_Gamma_i=NULL, first_iter=TRUE, previous_Nt1=0, 
+                 prev_Gamma_i=NULL, prev_phi_t=NULL, prev_psi_hj=NULL, prev_m_hj=NULL, prev_a_hj=NULL, prev_b_hj=NULL)
+{
+  # hyperparameters
+  if(is.null(eta_probs)){ eta_probs <- rep(1/length(alpha_stars), length(alpha_stars))}
+  
+  # basic setting
+  n <- nrow(Y)
+  K <- ncol(Y)
+  TT <- length(alpha_stars)
+  
+  # parameters
+  bhat_j <- Gamma_i <- phi_t <- NULL
+  psi_hj <- m_hj <- a_hj <- b_hj <- list()
+  
+  ## 0th value
+  zero_psi_hj <- rep(psi, K)
+  zero_m_hj <- rep(m, K)
+  zero_a_hj <- rep(a, K)
+  
+  if(first_iter == FALSE){ preliminary <- FALSE }
+  if(preliminary){ zero_b_hj <- rep(c/d, K) }else{ zero_b_hj <- b }
+  
+  # algorithm
+  if(first_iter == TRUE){
+    
+    ## sequential update
+    for(i in 1:n)
+    {
+      k_i1 <- length(unique(Gamma_i))
+      
+      ### update bhat
+      if(preliminary){
+        
+        if(i==1){ #### first iteraton 
+          
+          old_bhat_j <- rep(c/d, K)
+          new_bhat_j <- rep(c/d, K)
+          bhat_j <- rbind(old_bhat_j, new_bhat_j)
+          
+        }else{    #### not first
+          
+          old_bhat_j <- bhat_j[2,]
+          new_bhat_j <- (c + a*k_i1) / (d + ((sapply(1:k_i1, function(x){ a_hj[[x]][2,] }) / sapply(1:k_i1, function(x){ b_hj[[x]][2,] })) %>% apply(1,sum)))
+          bhat_j <- rbind(old_bhat_j, new_bhat_j)
+        }
+      }else{
+        
+        old_bhat_j <- zero_b_hj
+        new_bhat_j <- zero_b_hj
+        bhat_j <- rbind(old_bhat_j, new_bhat_j)
+      }
+      
+      ### choose gamma
+      if(i==1){ #### first iteraton 
+        
+        if(prior_info == FALSE){
+          
+          new_gamma_i <- 1
+          Gamma_i <- c(Gamma_i, new_gamma_i)
+          
+        }else{
+          
+          new_gamma_i <- prior_Gamma_i[i]
+          Gamma_i <- c(Gamma_i, new_gamma_i)
+        }
+        
+      }else{    #### not first
+        
+        old_phi_t <- phi_t[2,]
+        pi_iht <- rbind(matrix(table(Gamma_i), nrow=k_i1, ncol=TT, byrow=F), alpha_stars) * matrix(1/((previous_Nt1+i-1) + alpha_stars), nrow=k_i1+1, ncol=TT, byrow=T)
+        
+        if((prior_info == TRUE) & (length(prior_Gamma_i) >= i)){
+          
+          new_gamma_i <- prior_Gamma_i[i]
+          Gamma_i     <- c(Gamma_i, new_gamma_i)
+          
+        }else{
+          
+          tmp_probs <- pi_iht * matrix(old_phi_t, nrow=k_i1+1, ncol=TT, byrow=T)
+          Lih <- sapply(1:k_i1, function(x){  Calculate_Noncentral_t(y    =Y[i,], 
+                                                                     ai1  =a_hj[[x]][2,], 
+                                                                     bi1  =b_hj[[x]][2,], 
+                                                                     mi1  =m_hj[[x]][2,], 
+                                                                     psii1=psi_hj[[x]][2,]) }) %>% apply(2, prod)
+          Lih <- c(Lih, Calculate_Noncentral_t(y    =Y[i,], 
+                                               ai1  =zero_a_hj, 
+                                               bi1  =new_bhat_j, 
+                                               mi1  =zero_m_hj, 
+                                               psii1=zero_psi_hj) %>% prod)
+          
+          prob_gammai <- (tmp_probs*matrix(Lih, nrow=k_i1+1, ncol=TT)) %>% apply(1, sum)
+          new_gamma_i <- prob_gammai %>% which.max()
+          Gamma_i     <- c(Gamma_i, new_gamma_i)
+        }
+      }
+      
+      ### update alpha
+      if(i==1){ #### first iteraton 
+        
+        old_phi_t <- eta_probs
+        new_phi_t <- eta_probs
+        phi_t     <- rbind(old_phi_t, new_phi_t)
+        
+      }else{    #### not first
+        
+        old_phi_t <- phi_t[2,]
+        new_phi_t <- old_phi_t * pi_iht[new_gamma_i,]
+        new_phi_t <- new_phi_t/sum(new_phi_t)
+        phi_t     <- rbind(old_phi_t, new_phi_t)
+      }
+      
+      ### update theta=
+      if(i>1){ #### not first
+        
+        for(ii in 1:k_i1){
+          
+          if(ii == new_gamma_i){
+            
+            old_psi_hj <- psi_hj[[ii]][2,]
+            new_psi_hj <- 1/(1/old_psi_hj + 1)
+            
+            old_m_hj   <- m_hj[[ii]][2,]
+            new_m_hj   <- new_psi_hj * ((1/old_psi_hj)*old_m_hj + Y[i,])
+            
+            old_a_hj   <- a_hj[[ii]][2,]
+            new_a_hj   <- old_a_hj + 1/2
+            
+            old_b_hj   <- b_hj[[ii]][2,]
+            new_b_hj   <- old_b_hj + (Y[i,]^2 + (old_m_hj^2)/old_psi_hj - (new_m_hj^2)/new_psi_hj)/2 - old_bhat_j + new_bhat_j
+            
+            psi_hj[[new_gamma_i]] <- rbind(old_psi_hj, new_psi_hj)
+            m_hj[[new_gamma_i]]   <- rbind(old_m_hj,   new_m_hj)
+            a_hj[[new_gamma_i]]   <- rbind(old_a_hj,   new_a_hj)
+            b_hj[[new_gamma_i]]   <- rbind(old_b_hj,   new_b_hj)
+            
+          }else{ b_hj[[ii]]   <- rbind(b_hj[[ii]][2,],   b_hj[[ii]][2,] - old_bhat_j + new_bhat_j) }
+        }
+      }
+      
+      # new component added or first iteration
+      if(sum(Gamma_i == new_gamma_i)==1) 
+      {
+        old_psi_hj <- zero_psi_hj
+        new_psi_hj <- 1/(1/old_psi_hj + 1)
+        
+        old_m_hj   <- zero_m_hj
+        new_m_hj   <- new_psi_hj * ((1/old_psi_hj)*old_m_hj + Y[i,])
+        
+        old_a_hj   <- zero_a_hj
+        new_a_hj   <- old_a_hj + 1/2
+        
+        old_b_hj   <- old_bhat_j
+        new_b_hj   <- old_b_hj + (Y[i,]^2 + (old_m_hj^2)/old_psi_hj - (new_m_hj^2)/new_psi_hj)/2 - old_bhat_j + new_bhat_j
+        
+        psi_hj[[new_gamma_i]] <- rbind(old_psi_hj, new_psi_hj)
+        m_hj[[new_gamma_i]]   <- rbind(old_m_hj,   new_m_hj)
+        a_hj[[new_gamma_i]]   <- rbind(old_a_hj,   new_a_hj)
+        b_hj[[new_gamma_i]]   <- rbind(old_b_hj,   new_b_hj)
+      }
+    }
+  }else{
+    
+    # basic previous setting
+    bhat_j  <- NULL
+    Gamma_i <- prev_Gamma_i
+    phi_t   <- prev_phi_t
+    psi_hj  <- prev_psi_hj
+    m_hj    <- prev_m_hj
+    a_hj    <- prev_a_hj
+    b_hj    <- prev_b_hj
+    
+    for(i in 1:n)
+    {
+      k_i1 <- length(unique(Gamma_i))
+      
+      ### choose gamma
+      old_phi_t <- phi_t[2,]
+      pi_iht    <- rbind(matrix(table(Gamma_i), nrow=k_i1, ncol=TT, byrow=F), alpha_stars) * matrix(1/((previous_Nt1+i-1) + alpha_stars), nrow=k_i1+1, ncol=TT, byrow=T)
+      
+      tmp_probs <- pi_iht * matrix(old_phi_t, nrow=k_i1+1, ncol=TT, byrow=T)
+      Lih <- sapply(1:k_i1, function(x){ Calculate_Noncentral_t(y    =Y[i,], 
+                                                                ai1  =a_hj[[x]][2,], 
+                                                                bi1  =b_hj[[x]][2,], 
+                                                                mi1  =m_hj[[x]][2,], 
+                                                                psii1=psi_hj[[x]][2,]) }) %>% apply(2, prod)
+      Lih <- c(Lih,       Calculate_Noncentral_t(y    =Y[i,], 
+                                                 ai1  =zero_a_hj, 
+                                                 bi1  =zero_b_hj, 
+                                                 mi1  =zero_m_hj, 
+                                                 psii1=zero_psi_hj) %>% prod)
+      prob_gammai <- (tmp_probs*matrix(Lih, nrow=k_i1+1, ncol=TT)) %>% apply(1, sum)
+      new_gamma_i <- prob_gammai %>% which.max()
+      Gamma_i     <- c(Gamma_i, new_gamma_i)
+      
+      ### update alpha
+      old_phi_t <- phi_t[2,]
+      new_phi_t <- old_phi_t * pi_iht[new_gamma_i,]
+      new_phi_t <- new_phi_t/sum(new_phi_t)
+      phi_t     <- rbind(old_phi_t, new_phi_t)
+      
+      ### update theta
+      for(ii in 1:k_i1){
+        
+        if(ii == new_gamma_i){
+          
+          old_psi_hj <- psi_hj[[ii]][2,]
+          new_psi_hj <- 1/(1/old_psi_hj + 1)
+          
+          old_m_hj   <- m_hj[[ii]][2,]
+          new_m_hj   <- new_psi_hj * ((1/old_psi_hj)*old_m_hj + Y[i,])
+          
+          old_a_hj   <- a_hj[[ii]][2,]
+          new_a_hj   <- old_a_hj + 1/2
+          
+          old_b_hj   <- b_hj[[ii]][2,]
+          new_b_hj   <- old_b_hj + (Y[i,]^2 + (old_m_hj^2)/old_psi_hj - (new_m_hj^2)/new_psi_hj)/2
+          
+          psi_hj[[new_gamma_i]] <- rbind(old_psi_hj, new_psi_hj)
+          m_hj[[new_gamma_i]]   <- rbind(old_m_hj,   new_m_hj)
+          a_hj[[new_gamma_i]]   <- rbind(old_a_hj,   new_a_hj)
+          b_hj[[new_gamma_i]]   <- rbind(old_b_hj,   new_b_hj)
+          
+        }else{ b_hj[[ii]]   <- rbind(b_hj[[ii]][2,],   b_hj[[ii]][2,]) }
+      }
+      
+      # new component added
+      if(sum(Gamma_i == new_gamma_i)==1) 
+      {
+        old_psi_hj <- zero_psi_hj
+        new_psi_hj <- 1/(1/old_psi_hj + 1)
+        
+        old_m_hj   <- zero_m_hj
+        new_m_hj   <- new_psi_hj * ((1/old_psi_hj)*old_m_hj + Y[i,])
+        
+        old_a_hj   <- zero_a_hj
+        new_a_hj   <- old_a_hj + 1/2
+        
+        old_b_hj   <- zero_b_hj
+        new_b_hj   <- old_b_hj + (Y[i,]^2 + (old_m_hj^2)/old_psi_hj - (new_m_hj^2)/new_psi_hj)/2
+        
+        psi_hj[[new_gamma_i]] <- rbind(old_psi_hj, new_psi_hj)
+        m_hj[[new_gamma_i]]   <- rbind(old_m_hj,   new_m_hj)
+        a_hj[[new_gamma_i]]   <- rbind(old_a_hj,   new_a_hj)
+        b_hj[[new_gamma_i]]   <- rbind(old_b_hj,   new_b_hj)
+      }
+    }
+  }
+  
+  # approximate PML
+  kn <- Gamma_i %>% unique %>% length
+  
+  if(preliminary){
+    
+    final_bhat_j <- bhat_j[2,]
+    final_phi_t  <- phi_t[2,]
+    final_pi     <- rbind(matrix(table(Gamma_i), nrow=kn, ncol=TT, byrow=F), alpha_stars) * matrix(1/(previous_Nt1+n+alpha_stars), nrow=kn+1, ncol=TT, byrow=T)
+    final_prob   <- (final_pi * matrix(final_phi_t, nrow=kn+1, ncol=TT, byrow=T)) %>% apply(1,sum)
+    final_Lih <- NULL
+    for(x in 1:kn){
+      
+      final_Lih <- rbind(final_Lih, sapply(1:n, 
+                                           function(ii){   Calculate_Noncentral_t(y    =Y[ii,], 
+                                                                                  ai1  =a_hj[[x]][2,], 
+                                                                                  bi1  =b_hj[[x]][2,], 
+                                                                                  mi1  =m_hj[[x]][2,], 
+                                                                                  psii1=psi_hj[[x]][2,]) }) %>% apply(2, prod) )
+    }
+    final_Lih <- rbind(final_Lih, sapply(1:n, function(ii){   Calculate_Noncentral_t(y    =Y[ii,], 
+                                                                                     ai1  =zero_a_hj, 
+                                                                                     bi1  =final_bhat_j, 
+                                                                                     mi1  =zero_m_hj, 
+                                                                                     psii1=zero_psi_hj) }) %>% apply(2, prod) )
+    log_aPML <- (final_Lih * matrix( final_prob, nrow=kn+1, ncol=n )) %>% apply(2, sum) %>% log %>% sum()
+    
+  }else{
+    
+    final_phi_t  <- phi_t[2,]
+    final_pi     <- rbind(matrix(table(Gamma_i), nrow=kn, ncol=TT, byrow=F), alpha_stars) * matrix(1/(previous_Nt1+n+alpha_stars), nrow=kn+1, ncol=TT, byrow=T)
+    final_prob   <- (final_pi * matrix(final_phi_t, nrow=kn+1, ncol=TT, byrow=T)) %>% apply(1,sum)
+    final_Lih <- NULL
+    for(x in 1:kn){
+      
+      final_Lih <- rbind(final_Lih, sapply(1:n, 
+                                           function(ii){   Calculate_Noncentral_t(y    =Y[ii,], 
+                                                                                  ai1  =a_hj[[x]][2,], 
+                                                                                  bi1  =b_hj[[x]][2,], 
+                                                                                  mi1  =m_hj[[x]][2,], 
+                                                                                  psii1=psi_hj[[x]][2,]) }) %>% apply(2, prod) )
+    }
+    final_Lih <- rbind(final_Lih, sapply(1:n, function(ii){   Calculate_Noncentral_t(y    =Y[ii,], 
+                                                                                     ai1  =zero_a_hj, 
+                                                                                     bi1  =zero_b_hj, 
+                                                                                     mi1  =zero_m_hj, 
+                                                                                     psii1=zero_psi_hj) }) %>% apply(2, prod) )
+    log_aPML <- (final_Lih * matrix( final_prob, nrow=kn+1, ncol=n )) %>% apply(2, sum) %>% log %>% sum()
+  }
+  
+  
+  # return
+  return(list(log_aPML, bhat_j, Gamma_i, phi_t, psi_hj, m_hj, a_hj, b_hj))
+}
