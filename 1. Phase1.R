@@ -386,8 +386,8 @@ Final_result___b_hj     <- tmp___b_hj
 Gamma_i                 <- Final_result___Gamma_i
 Gamma_i2                <- Final_result___Gamma_i2
 
-# Ph1_result <- list(Final_Total_Result, Final_Total_Result_ordering, Gamma_i, Gamma_i2)
-# save(Ph1_result, file="Ph1_8.RData")
+Ph1_result <- list(Final_Total_Result, Final_Total_Result_ordering, Gamma_i, Gamma_i2)
+save(Ph1_result, file="Ph1_8.RData")
 # -------------------------------------------------------------------------------------------------
 #
 ###################################################################################################
@@ -852,6 +852,7 @@ grid.arrange(combined_plot)
 # -------------------------------------------------------------------------------------------------
 #
 ###################################################################################################
+
 
 
 
