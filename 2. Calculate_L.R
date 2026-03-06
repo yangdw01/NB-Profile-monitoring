@@ -207,6 +207,7 @@ output <- foreach(www = 1:ARL0_simN, .packages = c("dplyr", "dqrng")) %dopar% {
   for(w in 1:Phase1_ARL0_SS){
     
     # DATA for obtaining ARL0 = 100
+    rep_idx <- 1
     dqset.seed(w + (www+(rep_idx-1)*ARL0_simN)*1009)
     tmp_arl0_idx    <- dqsample(1:ncol(DATA_mat_org0), Ph2_n, replace=T) %>% sort
     tmp_arl0_DATA0  <- DATA_mat_org0[,tmp_arl0_idx]
@@ -612,3 +613,4 @@ combined_plot <- do.call(grid.arrange, c(plot_list, nrow = 3, ncol = 5))
 #
 
 ####################################################################################################
+
