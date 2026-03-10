@@ -319,6 +319,24 @@ stopCluster(myCluster)
 # Calculate alpha s.t. ARL0 = 100
 # -------------------------------------------------------------------------------------------------
 # load("ARL0.RData")
+
+cl_num_chk <- NULL
+cl_props   <- list()
+for(I in seq_along(output)){
+
+  cat(I, "   ")
+
+  tmp_output <- output[[I]]
+  tmp_length <- tmp_output %>% length
+
+  tmp_chk <- tmp_output %>% sapply(function(x){ x[[2]] %>% table %>% names %>% as.numeric %>% max %>% `>`(Ph1_H) }) %>% sum
+  tmp_fun <- function(k){ tmp_output %>% sapply(function(x){ sum(x[[2]] == k, na.rm=T)/sum(!is.na(x[[2]])) }) }
+
+  cl_num_chk    <- c(cl_num_chk, tmp_chk)
+  cl_props[[I]] <- sapply(1:Ph1_H, function(x){ tmp_fun(x) })
+}
+ARL0_simN <- length(output)
+
 target_Ph1_pis   <- Ph1_pi_h2
 lower_prob_thres <- 0.005
 Int2_idx <- which(target_Ph1_pis >= lower_prob_thres)
@@ -613,4 +631,5 @@ combined_plot <- do.call(grid.arrange, c(plot_list, nrow = 3, ncol = 5))
 #
 
 ####################################################################################################
+
 
